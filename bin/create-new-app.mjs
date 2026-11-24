@@ -239,6 +239,8 @@ function listFiles(dir, prefix = "") {
 function warnIfStale() {
   if (!existsSync(join(root, ".git"))) return;
   try {
+    // A shallow clone (CI) has no history to compare.
+    if (out("git", ["rev-parse", "--is-shallow-repository"], { cwd: root }) === "true") return;
     execFileSync("git", ["fetch", "-q", "origin", "main"], { cwd: root, stdio: "ignore", timeout: 15000 });
     const behind = out("git", ["rev-list", "--count", "HEAD..FETCH_HEAD"], { cwd: root });
     if (behind !== "0") console.warn(`warning: ${root} is ${behind} commit(s) behind GitHub's main; \`git -C ${root} pull\` for the latest.`);
