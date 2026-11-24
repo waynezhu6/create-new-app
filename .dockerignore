@@ -2,3 +2,5 @@
 **/dist
 **/.env
 .git
+**/.venv
+**/__pycache__
