@@ -1,1 +1,0 @@
-- **Backend**: FastAPI, Python 3.13 with uv, PostgreSQL (psycopg 3, SQL migrations)

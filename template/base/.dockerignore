@@ -4,3 +4,6 @@
 .git
 **/.venv
 **/__pycache__
+# if ios
+ios
+# end

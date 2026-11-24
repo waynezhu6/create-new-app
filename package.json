@@ -1,12 +1,13 @@
 {
-  "name": "app-template",
+  "name": "create-new-app",
   "version": "1.0.0",
   "private": true,
-  "scripts": {
-    "dev": "npm run dev --workspace=backend & npm run dev --workspace=frontend"
+  "description": "Creates a new app for waynezhu.dev: one backend (ts or python) and one or more frontends (web, ios).",
+  "bin": {
+    "create-new-app": "bin/create-new-app.mjs"
   },
   "workspaces": [
-    "frontend",
-    "backend"
+    "template/frontend/web",
+    "template/backend/ts"
   ]
 }

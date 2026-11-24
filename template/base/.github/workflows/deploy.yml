@@ -3,6 +3,12 @@ name: Deploy
 on:
   push:
     branches: [main]
+# if ios
+    # The iPhone app doesn't run on the server, so changes only under ios/
+    # don't redeploy it.
+    paths-ignore:
+      - "ios/**"
+# end
   workflow_dispatch:
 
 concurrency:
@@ -18,10 +24,8 @@ env:
   APP: ${{ github.event.repository.name }}
   IMAGE_OWNER: ${{ github.repository_owner }}
 
-# The template repo itself has no server to deploy to; only copies of it deploy.
 jobs:
   deploy:
-    if: ${{ !github.event.repository.is_template }}
     # The server is arm64, so build on an arm64 runner (free for public repos)
     # and the image runs there as is.
     runs-on: ubuntu-24.04-arm

@@ -1,1 +1,0 @@
-Starter for a service on Wayne's VPS: React + Vite frontend, FastAPI + Postgres backend in Python (uv), deployed by `.github/workflows/deploy.yml`. Server-side details (Caddy, Postgres, registration, secrets) live in the [infrastructure](https://github.com/waynezhu6/infrastructure) repo, not here.

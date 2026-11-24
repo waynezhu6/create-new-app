@@ -1,107 +1,60 @@
-# app-template
+# create-new-app
 
-Starter template for a full-stack app on my personal VPS. React + Vite frontend, a TypeScript or Python backend, PostgreSQL, deployed via GitHub Actions.
-
-## Stack
-
-- **Frontend**: React 19, Vite, TypeScript
-<!-- template-only -->
-- **Backend**, one of:
-  - `ts` (default): Express, TypeScript, PostgreSQL (`node-pg-migrate`)
-  - `python`: FastAPI, Python 3.13 with uv, PostgreSQL (psycopg 3, SQL migrations)
-<!-- /template-only -->
-<!-- stack:summary -->
-- **Backend**: Express, TypeScript, PostgreSQL (`node-pg-migrate`)
-<!-- /stack:summary -->
-- **Infra**: Docker, Caddy (via [infrastructure](https://github.com/waynezhu6/infrastructure)), GHCR
-
-## Using this template
-
-**1. Create a new repo from this template** on GitHub. The repo name becomes the app name everywhere: the container `<name>-backend`, the image `ghcr.io/<owner>/<name>-backend`, the frontend folder `sites/<name>` and the database. Nothing in the files needs renaming. Use lowercase letters, digits and dashes.
-
-<!-- template-only -->
-**Pick the backend's language** in the new repo, then commit the result:
+Makes a new app for my VPS at `waynezhu.dev`: one backend and one or more frontends, in a new GitHub repo that deploys on push.
 
 ```bash
-node scripts/init.mjs --lang python   # or --lang ts, the default
-git add -A && git commit -m "Initialize as a python app"
+create-new-app notes                                     # TypeScript backend, web frontend
+create-new-app lab --backend python                       # Python backend (FastAPI + uv), for data work
+create-new-app habits --frontend web --frontend ios       # web and iPhone apps sharing one backend
 ```
 
-It replaces `backend/` with that language's (from `stacks/<lang>/`), fills in this README and `CLAUDE.md` for it, and removes the other languages and itself. Either way the image follows the same contract with the server (port 3001, `/api/health`, the frontend at `/app/frontend/dist`), so nothing on the server changes. Until you run it the repo is a TypeScript app.
-<!-- /template-only -->
+| Choice | Options | Becomes |
+|---|---|---|
+| `--backend` (one) | `ts` (default): Express, TypeScript, `node-pg-migrate`<br>`python`: FastAPI, Python 3.13 with uv, psycopg 3, SQL migrations | `backend/` |
+| `--frontend` (one or more) | `web` (default): React 19 + Vite<br>`ios`: SwiftUI, iOS 17+ | `frontend/`, `ios/` |
 
-**2. Register the app** in the [infrastructure](https://github.com/waynezhu6/infrastructure) repo: Actions → Register app, with the repo name. Merge the PR it opens. That lets the app deploy and serves it at `/apps/<name>/` (frontend) and `/api/<name>/` (backend) on the server's domain; see "Adding a New Project" there, which also covers app-specific secrets.
+Every combination deploys the same way, so nothing on the server depends on the choices.
 
-**What the app gets from the server** is declared in `infra.yml` at the repo root, sent with every deploy. It starts as `postgres: true`: the first deploy creates the app's database and the backend gets `DATABASE_URL`. The server creates what's declared and missing, never removes anything, and refuses unknown settings; the settings are listed in infrastructure's README.
+## Setup, once
 
-**3. Push to `main`.** No deploy secrets are needed. CI builds one image with the backend and the built frontend, pushes it to GHCR, and asks the server's deployer to run it (infrastructure's `actions/deploy`). The deploy step proves which repo it is with a GitHub OIDC token, so the server only lets this repo deploy this app. Its output, including the backend's health check, streams into the Actions log, and a failed health check rolls back to the previous version. `DATABASE_URL` comes from the server (with `postgres: true` in `infra.yml`). App secrets (API keys) go in this repo's Actions secrets (Settings → Secrets and variables → Actions), each listed as a `NAME=${{ secrets.NAME }}` line under `env` in the Deploy step of `.github/workflows/deploy.yml`; the backend gets it as the environment variable `NAME`. They must be single-line, and `DATABASE_URL`, `NODE_ENV` and `PORT` are reserved; the deploy fails with a clear message if the app isn't registered yet.
-
-<!-- template-only -->
-This template repo itself doesn't deploy (the job skips when the repo is a template).
-<!-- /template-only -->
-
-## Local dev
+Needs Node 20+, git and the [GitHub CLI](https://cli.github.com) signed in (`gh auth login`).
 
 ```bash
-npm install
-docker compose -f docker-compose.dev.yml up -d   # local Postgres on 5432
-cp backend/.env.example backend/.env
-npm run dev                                      # http://localhost:5173/apps/<name>/, backend on 3001
+git clone https://github.com/waynezhu6/create-new-app ~/Projects/create-new-app
+cd ~/Projects/create-new-app && npm link      # puts create-new-app on your PATH
 ```
 
-Dev uses the production paths: the frontend is at `/apps/<name>/` and proxies `/api/<name>/...` to the backend as `/api/...`, as Caddy does. `<name>` is the checkout's folder name locally and the repo name in CI.
+It warns if the clone is behind GitHub; `git pull` in it to update.
 
-## Paths
+## What it does
 
-The app is served under a prefix, so never hardcode `/` or `/api` URLs:
+1. Writes the app into `./<name>` (or `--dir`). The name is the app's name everywhere: repo, `waynezhu.dev/apps/<name>/`, `/api/<name>/`, its container and its database. Use lowercase letters, digits and dashes.
+2. Makes it a git repo, creates `github.com/<you>/<name>` (public unless `--private`; public repos get free arm64 runners) and pushes `main`.
+3. Starts infrastructure's Register app workflow, which opens the PR that registers the app. **Merge that PR**, then deploy with `gh workflow run deploy.yml -R <you>/<name>`. The first Deploy, from the initial push, fails until then.
 
-- Frontend: call the backend with `api('/things')` or `apiUrl('/things')` from `frontend/src/api.ts`. Assets and imports are handled by Vite's `base`.
-- Backend: routes stay under `/api/*` (Caddy strips the prefix). For URLs the backend sends to the browser (redirects, links, cookie paths), use `API_BASE` and `APP_BASE` from `backend/src/paths.ts`. Set cookies with `path: API_BASE` so they only go to this app's backend; all apps share one domain.
+`--no-github` only writes the folder, to look at what it makes. `--no-register` skips step 3. The app's own README and `CLAUDE.md` describe how to develop and deploy it.
 
-<!-- stack:backend -->
-## Sign-in
+## How it's put together
 
-Apps share one passkey sign-in, the [auth](https://github.com/waynezhu6/auth) service at `/apps/auth/`. Its session cookie reaches every app's backend, and `backend/src/auth.ts` asks the service who it belongs to:
-
-```ts
-import { requireUser } from "./auth.js";
-
-app.get("/api/notes", requireUser, async (_req, res) => {
-  const { id, name } = res.locals.user; // key data on id
-  // ...
-});
+```
+bin/create-new-app.mjs     the command (plain Node, no dependencies)
+template/base/             in every app: deploy workflow, infra.yml, dev Postgres, README, CLAUDE.md
+template/backend/ts/       → backend/
+template/backend/python/   → backend/
+template/frontend/web/     → frontend/
+template/frontend/ios/     → ios/
 ```
 
-`requireUser` answers 401 when nobody is signed in. On a 401 the frontend sends the browser to the sign-in page, which returns it here afterwards:
+Files that differ by choice say so inline, and the command keeps only the parts that apply:
 
-```ts
-import { api, loginUrl } from './api'
-
-const res = await api('/notes')
-if (res.status === 401) location.assign(loginUrl())
+```dockerfile
+# if web
+COPY --from=frontend /app/frontend/dist frontend/dist
+# else
+RUN mkdir -p frontend/dist && ... placeholder page ...
+# end
 ```
 
-`currentUser(req)` returns the user or `null`, for routes that work either way. Locally there's no auth service: `AUTH_DEV_USER` in `backend/.env` signs you in as that name, and removing it signs you out. Accounts are invite-only; see auth's README.
+`<!-- if python -->` … `<!-- end -->` does the same in Markdown, also inline. `if web,ios` means either; `if !web` means without. `__APP__` is replaced by the app's name and `__APP_TYPE__` by a Swift type name made from it (`my-notes` → `MyNotes`), in file contents and paths.
 
-Callers that can't sign in, like a script or an iOS Shortcut, use an API key: make one for this app on auth's admin page and send it as `Authorization: Bearer wz_…`. `requireUser` accepts it the same way, and `res.locals.user.key` holds the key's name (it's unset for a signed-in browser). A key made for another app is refused.
-
-## Database migrations
-
-```bash
-cd backend
-
-# Migrations are ES modules (.js) in backend/migrations
-# Create a new migration
-npm run migrate:create -- my-migration-name
-
-# Apply / roll back
-npm run migrate:up
-npm run migrate:down
-```
-
-The `migrate:*` commands read `DATABASE_URL` from your shell, e.g. `export $(cat .env)` first.
-
-Migrations run automatically on backend startup, before it takes requests. If one fails the backend exits, so the deploy fails its health check and the previous version keeps serving.
-
-Deploys don't stop the app: the new version starts and migrates while the old one still serves, then takes over. So a migration must leave the schema usable by the previous version: add tables and columns freely, but drop or rename one only in a later deploy, once no shipped code uses it.
-<!-- /stack:backend -->
+The root `package.json` makes `template/frontend/web` and `template/backend/ts` npm workspaces, so `npm install` here gives you both to work on, and every new app's `package-lock.json` comes from the one here. The `Check` workflow makes an app for several combinations and checks each image against the deployer's contract (port 3001, `/api/health`, `/app/frontend/dist`, migrations on startup, exit on SIGTERM), and builds the iPhone starter on macOS.

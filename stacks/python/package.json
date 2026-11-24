@@ -1,7 +1,0 @@
-{
-  "//": "Merged into the root package.json by scripts/init.mjs.",
-  "scripts": {
-    "dev": "npm run dev:backend & npm run dev --workspace=frontend",
-    "dev:backend": "cd backend && uv run --env-file=.env python -m app --reload"
-  }
-}

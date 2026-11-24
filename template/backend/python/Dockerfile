@@ -1,6 +1,7 @@
-# Built from the repo root (context: .) so npm can use the workspace lockfile.
-# One image carries the whole app: the backend runs from it, and the server's
-# deployer copies the built frontend out of /app/frontend/dist.
+# Built from the repo root (context: .). One image carries the whole app: the
+# backend runs from it, and the server's deployer copies the built frontend out
+# of /app/frontend/dist.
+# if web
 FROM node:20.19-alpine AS frontend
 # The repo name: the frontend is built for waynezhu.dev/apps/<APP>/.
 ARG APP
@@ -12,6 +13,7 @@ COPY frontend frontend
 RUN test -n "$APP" || { echo "Build with --build-arg APP=<repo name>" >&2; exit 1; }
 RUN APP="$APP" npm run build --workspace=frontend
 
+# end
 # Debian-based (not alpine) so data packages like numpy and pandas install from
 # prebuilt wheels. The builder and the final image share a base, so the
 # virtualenv copies over as is.
@@ -27,7 +29,13 @@ WORKDIR /app/backend
 COPY --from=builder /app/backend/.venv .venv
 COPY backend/app app
 COPY backend/migrations migrations
+# if web
 COPY --from=frontend /app/frontend/dist /app/frontend/dist
+# else
+# The deployer publishes /app/frontend/dist at /apps/<APP>/. This app has no
+# web frontend, so that page just says so.
+RUN mkdir -p /app/frontend/dist && printf '<!doctype html><meta charset="utf-8"><title>%s</title><p>%s has no web page.</p>\n' __APP__ __APP__ > /app/frontend/dist/index.html
+# end
 # paths.py builds the app's public URLs (/api/<APP>, /apps/<APP>/) from this;
 # the server doesn't pass the name in. NODE_ENV is the server's name for
 # "production" for every app, whatever its language.
