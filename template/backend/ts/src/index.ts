@@ -1,6 +1,7 @@
 import express from "express";
 import cors from "cors";
 import { migrate } from "./db.js";
+import { requireUser } from "./auth.js";
 
 const app = express();
 app.disable("x-powered-by");
@@ -11,6 +12,11 @@ app.use(express.json());
 
 app.get("/api/health", (_req, res) => {
   res.json({ status: "ok" });
+});
+
+// Who is signed in (or which API key is calling); 401 if nobody.
+app.get("/api/me", requireUser, (_req, res) => {
+  res.json(res.locals.user);
 });
 
 // Don't take traffic until the schema is current. A failed migration exits so

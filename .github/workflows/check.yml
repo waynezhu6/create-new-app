@@ -1,0 +1,104 @@
+# Makes an app with each backend and frontend choice (create-new-app --no-github),
+# builds its image the way the app's deploy.yml would, and checks what the
+# server's deployer relies on: /api/health on port 3001 after migrations, a page
+# at /app/frontend/dist, and a clean exit on SIGTERM. The iPhone starter is
+# built for the simulator on macOS.
+name: Check
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  image:
+    name: image (${{ matrix.backend }}, ${{ matrix.frontend }})
+    runs-on: ubuntu-24.04-arm
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { backend: ts, frontend: web }
+          - { backend: python, frontend: web }
+          - { backend: ts, frontend: "web,ios" }
+          - { backend: python, frontend: ios }
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: app
+        options: >-
+          --health-cmd pg_isready --health-interval 2s --health-timeout 5s --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+
+      - name: Make the app
+        run: node bin/create-new-app.mjs check-app --backend ${{ matrix.backend }} --frontend ${{ matrix.frontend }} --no-github --dir "$RUNNER_TEMP/check-app"
+
+      - name: Nothing of the template left
+        working-directory: ${{ runner.temp }}/check-app
+        run: |
+          if grep -rnE -- '__APP|<!-- (if |else|end)|^# (if |else$|end$)' . ; then exit 1; fi
+
+      - name: Add a test migration
+        working-directory: ${{ runner.temp }}/check-app
+        run: |
+          if [ ${{ matrix.backend }} = ts ]; then
+            echo 'export const up = (pgm) => { pgm.createTable("check_table", { id: "id" }); };' > backend/migrations/1_check.js
+          else
+            echo 'create table check_table (id serial primary key);' > backend/migrations/1_check.sql
+          fi
+
+      - name: Build image
+        working-directory: ${{ runner.temp }}/check-app
+        run: docker build -f backend/Dockerfile --build-arg APP=check-app -t check-backend .
+
+      - name: Run and check it
+        run: |
+          net=$(docker network ls --filter name=github_network --format '{{.Name}}' | head -1)
+          docker run -d --name check --network "$net" \
+            -e NODE_ENV=production -e PORT=3001 \
+            -e DATABASE_URL=postgres://postgres:postgres@postgres:5432/app \
+            -p 3001:3001 check-backend
+          for i in $(seq 60); do
+            curl -fsS localhost:3001/api/health && break
+            sleep 1
+          done || true
+          curl -fsS localhost:3001/api/health | grep -q '"ok"' || { docker logs check; exit 1; }
+          test "$(curl -s -o /dev/null -w '%{http_code}' localhost:3001/api/me)" = 401
+          docker exec check test -f /app/frontend/dist/index.html
+          docker run --rm --network "$net" postgres:16-alpine \
+            psql postgres://postgres:postgres@postgres:5432/app -tAc 'select 1 from check_table limit 0' >/dev/null
+          start=$(date +%s)
+          docker stop -t 30 check
+          code=$(docker inspect -f '{{.State.ExitCode}}' check)
+          took=$(( $(date +%s) - start ))
+          echo "Exited with $code after ${took}s"
+          docker logs check
+          [ "$code" = 0 ] && [ "$took" -lt 10 ]
+
+      - name: Typecheck the web frontend
+        if: contains(matrix.frontend, 'web')
+        working-directory: ${{ runner.temp }}/check-app
+        run: npm ci && (cd frontend && npx tsc -b)
+
+  ios:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Make the app
+        run: node bin/create-new-app.mjs check-app --frontend ios --no-github --dir "$RUNNER_TEMP/check-app"
+      - name: Build for the simulator
+        working-directory: ${{ runner.temp }}/check-app/ios
+        run: |
+          xcodebuild -version
+          xcodebuild -project CheckApp.xcodeproj -target CheckApp -sdk iphonesimulator -configuration Debug CODE_SIGNING_ALLOWED=NO build | tail -30
+          exit ${PIPESTATUS[0]}

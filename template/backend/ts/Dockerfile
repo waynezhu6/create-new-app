@@ -5,11 +5,14 @@ FROM node:20.19-alpine AS builder
 WORKDIR /app
 COPY package.json package-lock.json ./
 COPY backend/package.json backend/
+# if web
 COPY frontend/package.json frontend/
+# end
 RUN npm ci --workspace=backend --include-workspace-root=false
 COPY backend backend
 RUN npm run build --workspace=backend
 
+# if web
 FROM node:20.19-alpine AS frontend
 # The repo name: the frontend is built for waynezhu.dev/apps/<APP>/.
 ARG APP
@@ -22,15 +25,24 @@ COPY frontend frontend
 RUN test -n "$APP" || { echo "Build with --build-arg APP=<repo name>" >&2; exit 1; }
 RUN APP="$APP" npm run build --workspace=frontend
 
+# end
 FROM node:20.19-alpine
 WORKDIR /app
 COPY package.json package-lock.json ./
 COPY backend/package.json backend/
+# if web
 COPY frontend/package.json frontend/
+# end
 RUN npm ci --workspace=backend --include-workspace-root=false --omit=dev
 COPY --from=builder /app/backend/dist backend/dist
 COPY --from=builder /app/backend/migrations backend/migrations
+# if web
 COPY --from=frontend /app/frontend/dist frontend/dist
+# else
+# The deployer publishes /app/frontend/dist at /apps/<APP>/. This app has no
+# web frontend, so that page just says so.
+RUN mkdir -p frontend/dist && printf '<!doctype html><meta charset="utf-8"><title>%s</title><p>%s has no web page.</p>\n' __APP__ __APP__ > frontend/dist/index.html
+# end
 WORKDIR /app/backend
 # paths.ts builds the app's public URLs (/api/<APP>, /apps/<APP>/) from this;
 # the server doesn't pass the name in.
